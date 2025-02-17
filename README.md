@@ -118,4 +118,118 @@ To successfully complete the assignment, you must submit the following:
 ✅ Incomplete submissions will not be considered.  
 ✅ The video submission is mandatory.  
 
+<?php
+
+namespace App\Controller;
+
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Routing\Annotation\Route;
+use Doctrine\ORM\EntityManagerInterface;
+use App\Entity\User;
+use Symfony\Component\Mime\Email;
+use Symfony\Component\Mailer\MailerInterface;
+use League\Csv\Reader;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Abraham\TwitterOAuth\TwitterOAuth;
+
+class UserController extends AbstractController
+{
+    #[Route('/api/upload', name: 'upload_users', methods: ['POST'])]
+    public function upload(Request $request, EntityManagerInterface $entityManager, MailerInterface $mailer): JsonResponse
+    {
+        $file = $request->files->get('file');
+        if (!$file) {
+            return new JsonResponse(['error' => 'No file uploaded'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $csv = Reader::createFromPath($file->getPathname(), 'r');
+        $csv->setHeaderOffset(0);
+        $users = [];
+
+        foreach ($csv as $record) {
+            $user = new User();
+            $user->setName($record['name']);
+            $user->setEmail($record['email']);
+            $user->setUsername($record['username']);
+            $user->setAddress($record['address']);
+            $user->setRole($record['role']);
+            $entityManager->persist($user);
+            $users[] = $user;
+        }
+        $entityManager->flush();
+
+        foreach ($users as $user) {
+            $email = (new Email())
+                ->from('noreply@example.com')
+                ->to($user->getEmail())
+                ->subject('Welcome!')
+                ->text('Your data has been stored successfully.');
+            $mailer->send($email);
+        }
+
+        return new JsonResponse(['message' => 'Users uploaded successfully'], Response::HTTP_OK);
+    }
+
+    #[Route('/api/users', name: 'get_users', methods: ['GET'])]
+    public function getUsers(EntityManagerInterface $entityManager): JsonResponse
+    {
+        $users = $entityManager->getRepository(User::class)->findAll();
+        return new JsonResponse($users, Response::HTTP_OK);
+    }
+
+    #[Route('/auth/twitter', name: 'twitter_login', methods: ['GET'])]
+    public function twitterLogin(): Response
+    {
+        $twitterOAuth = new TwitterOAuth('TWITTER_CONSUMER_KEY', 'TWITTER_CONSUMER_SECRET');
+        $requestToken = $twitterOAuth->oauth('oauth/request_token', ['oauth_callback' => 'CALLBACK_URL']);
+        
+        $url = $twitterOAuth->url('oauth/authorize', ['oauth_token' => $requestToken['oauth_token']]);
+        return new JsonResponse(['url' => $url]);
+    }
+
+    #[Route('/auth/twitter/callback', name: 'twitter_callback', methods: ['GET'])]
+    public function twitterCallback(Request $request, EntityManagerInterface $entityManager): Response
+    {
+        $oauthToken = $request->query->get('oauth_token');
+        $oauthVerifier = $request->query->get('oauth_verifier');
+
+        $twitterOAuth = new TwitterOAuth('TWITTER_CONSUMER_KEY', 'TWITTER_CONSUMER_SECRET');
+        $accessToken = $twitterOAuth->oauth('oauth/access_token', ['oauth_verifier' => $oauthVerifier]);
+
+        $user = new User();
+        $user->setName($accessToken['screen_name']);
+        $user->setUsername($accessToken['screen_name']);
+        $user->setEmail($accessToken['screen_name'].'@twitter.com');
+        $user->setRole('USER');
+        $entityManager->persist($user);
+        $entityManager->flush();
+
+        return new JsonResponse(['message' => 'Twitter authentication successful']);
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 Good luck! 🚀
